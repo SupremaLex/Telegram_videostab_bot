@@ -6,23 +6,30 @@ token  = '459256665:AAFdAwtfLljM8l_-OirZQx201rnSUNrIPvw'
 width  = 1920
 heigth = 1080
 track  = false
-Telegram::Bot::Client.run(token, logger: Logger.new('logfile.log')) do |bot|
+crop   = 25
+Telegram::Bot::Client.run(token, logger: Logger.new('logfile.log'), offset: -1) do |bot|
   begin
   bot.listen do |message|
+    p message
     bot.logger.info("Message from user with #{message.from.id}id, f_name=#{message.from.first_name}, l_name=#{message.from.last_name}")
     if message.text
       splitted = message.text.split(' ')
       case splitted[0]
       when '/start'
         bot.api.send_message(chat_id: message.chat.id, text: "Hello, #{message.from.first_name}")
+        #Thread.main.run
       when '/stop'
         bot.api.send_message(chat_id: message.chat.id, text: "Bye, #{message.from.first_name}")
+        #Thread.main.stop
       when '/help'
         bot.api.send_message(chat_id: message.chat.id, text: 
-%{send video with size < 20 mb  and wait for result 
+%{send video and wait for result
+MAX video size is 20 Mb
 default processed video resolution is 1920x1080
 type /resize [width] [heigth] - to change processed video resolution 
 type /track to track keypoints of image
+type /crop to change cropping borders
+type /config to get current settings
 })
       when '/resize'
         width = splitted[1]  if splitted[1].to_i > 0
@@ -32,6 +39,15 @@ type /track to track keypoints of image
       when '/track'
         track ^= true
         bot.api.send_message(chat_id: message.chat.id, text: "Features tracking mode on: #{track}")
+      when '/crop'
+        horizontal_crop = splitted[1] if 0 < splitted[1].to_i && splitted[1].to_i < width
+        bot.api.send_message(chat_id: message.chat.id, text: "Cropping borders: #{crop}")
+      when '/config'
+        bot.api.send_message(chat_id: message.chat.id, text: 
+%{size : #{width}x#{heigth}
+track mode: #{track}
+cropping borders: #{crop}
+      })
       else 
         bot.api.send_message(chat_id: message.chat.id, text: "I reversed your message: #{message.text.reverse}") if message.text
       end
@@ -50,11 +66,12 @@ type /track to track keypoints of image
         bot.logger.info('Start video stabilization')
         Thread.new do
           bot.logger.info('New thread started')  
-          videostab(path, "#{width}", "#{heigth}", "#{track.to_s.capitalize}")
+          videostab(path, "#{width}", "#{heigth}","#{crop}", "#{track.to_s.capitalize}")
           bot.api.send_message(chat_id: message.chat.id, text: "Video processing finished")
           bot.api.send_video(chat_id: message.chat.id, video: Faraday::UploadIO.new("videos/#{file_id}stab.#{fmt}", 'video/mp4'){})
           bot.logger.info("Send stab video")
         end
+        p Thread.list
     end
   end
   rescue 
