@@ -1,17 +1,22 @@
+require 'telegram/bot'
+require 'open-uri'
+require_relative  './videostab'
+
 
 class BotController
 
 	WIDTH  	  = 1920
-	HEIGTH 	  = 1080
+	HEIGHT 	  = 1080
 	TRACKING  = false
 	CROP   	  = 25
 
-	attr_reader :width, :height, :tracking, :crop_borders
+	attr_reader :bot, :width, :height, :tracking, :crop_borders
 
 	def initialize(token)
 		@bot = Telegram::Bot::Client.new(token, logger: Logger.new('logfile.log'))
+		@token = token
 		@width = WIDTH
-		@height = HEIGTH
+		@height = HEIGHT
 		@tracking = TRACKING
 		@crop_borders = CROP
 	end
@@ -34,6 +39,7 @@ class BotController
 			crop chat_id, params
 		when '/config'
 			config chat_id
+		end
 	end
 
 	def help(chat_id)
@@ -81,22 +87,20 @@ cropping borders : #{@crop_borders}
 		fmt     = (message.document.mime_type rescue message.video.mime_type).split('/')[-1]
 		bot.logger.info("Get file with #{file_id}id, file_path=#{file_path}, format=#{fmt}")
 		open("videos/#{file_id}.#{fmt}", 'wb') do |file|
-			file <<  open("https://api.telegram.org/file/bot#{token}/#{file_path}").read
+			file <<  open("https://api.telegram.org/file/bot#{@token}/#{file_path}").read
 		end
 		bot.logger.info('Start video stabilization')
 		path = "C:\\Users\\George\\Desktop\\ruby_apps\\telegram_videostab\\videos\\%s.%s" % [file_id, fmt]
 	end
 
 	def process_video(path, chat_id)
-		Thread.new do
 			bot.logger.info('New thread started')  
-			videostab(path, "#{@width}", "#{@heigth}","#{@crop_borders}" "#{@tracking.to_s.capitalize}")
+			videostab(path, "#{@width}", "#{@height}", "#{@crop_borders}", "#{@tracking.to_s.capitalize}")
 			bot.api.send_message(chat_id: chat_id, text: "Video processing finished")
-			path = path.split('.')
-			new_video_path = path[0] + 'stab' + path[1]
-			bot.api.send_video(chat_id: chat_id, video: Faraday::UploadIO.new(new_video_path, 'video/'+path[1]))
+			path, fmt = path.split('.')
+			new_video_path = path + 'stab.' + fmt
+			bot.api.send_video(chat_id: chat_id, video: Faraday::UploadIO.new(new_video_path, 'video/'+fmt))
 			bot.logger.info("Send stab video")
-		end
 	end
 
 	def start_bot
@@ -105,16 +109,22 @@ cropping borders : #{@crop_borders}
 				exec_command(message) if message.text
 				if message.video || message.document
 					path = get_video(message)
-					Thread.new {process_video(path, message.chat.id)} 
+					Thread.new {process_video(path, message.chat.id)}
 				end
+				if Thread.list.length > 4
+					p "Too much threads"
+					Thread.list[1..-1].each {|thread| thread.join}
+				end
+				p Thread.list
 			end
 		end
 	end
 
 	def stop_bot
-		for thread in Thread.list
+		 Thread.list.each do |thread|
 			thread.kill
 		end
 		Thread.main.stop
 	end
+
 end
