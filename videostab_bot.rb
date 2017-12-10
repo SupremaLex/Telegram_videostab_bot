@@ -50,11 +50,12 @@ class VideostabBot
 			config chat_id
 		end
 	end
+
 	# help command : send list of all commands and theit description
 	# @params chat_id[String] chat_id from Telegram::Bot::Types::Chat
 	# @return nil
 	def help(bot, chat_id)
-		bot.api.send_message(chat_id: chat_id, text: 
+		@bot.api.send_message(chat_id: chat_id, text: 
 %{send video and wait for result
 MAX video size is 20 Mb
 default processed video resolution is 1920x1080
@@ -82,7 +83,7 @@ type /config to get current settings
 	# @return nil
 	def track(chat_id)
 		@tracking ^= true
-		bot.api.send_message(chat_id: chat_id, text: "Features tracking mode on: #{@tracking}")
+		@bot.api.send_message(chat_id: chat_id, text: "Features tracking mode on: #{@tracking}")
 	end
 
 	# crop command: change cropping borders and current cropping borders to the chat
@@ -90,7 +91,7 @@ type /config to get current settings
 	# @param params[Array[Integer]]
 	# @return nil 
 	def crop(chat_id, params)
-		horizontal_crop = params[0] if 0 < params[0].to_i && params[0].to_i < @width
+		horizontal_crop = params[0] if 0 < params[0].to_i && params[0].to_i < WIDTH
 		@bot.api.send_message(chat_id: chat_id, text: "Cropping borders: #{@crop_borders}")
 	end
 
@@ -109,9 +110,8 @@ cropping borders : #{@crop_borders}
 	# @param message[Telegram::Bot::Types::Message]
 	# @return nil
 	def get_video(message)
-		begin 
 			file_id = message.document.file_id rescue message.video.file_id
-			file    = bot.api.get_file(file_id: file_id)
+			file    = @bot.api.get_file(file_id: file_id)
 			file_id, file_size, file_path = file['result'].values
 			type, *other, fmt = (message.document.mime_type rescue message.video.mime_type).split('/')
 			if type != 'video'
@@ -124,10 +124,6 @@ cropping borders : #{@crop_borders}
 			@bot.api.send_message(chat_id: message.chat.id, text: "Video processing started\n ...")  
 			@bot.logger.info('Start video stabilization')
 			path = "C:\\Users\\George\\Desktop\\ruby_apps\\telegram_videostab\\videos\\%s.%s" % [file_id, fmt]
-			rescue
-				p $!
-				retry
-			end
 	end
 
 	# process video via python script calling and send processed video to chat
