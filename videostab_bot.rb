@@ -19,7 +19,7 @@ class VideostabBot
 	# @param token[String]
 	# @return nil
 	def initialize(token)
-		@bot = Telegram::Bot::Client.new(token, logger: Logger.new('logfile.log'), offset: -1)
+		@bot = Telegram::Bot::Client.new(token, logger: Logger.new('logfile.log'), offset: -1).run {|bot| bot}
 		@token = token
 		@width = WIDTH
 		@height = HEIGHT
@@ -35,9 +35,9 @@ class VideostabBot
 		chat_id = message.chat.id
 		case command
 		when '/start'
-			bot.api.send_message(chat_id: chat_id, text: "Hello, #{message.from.first_name}")
+			@bot.api.send_message(chat_id: chat_id, text: "Hello, #{message.from.first_name}")
 		when '/stop'
-			bot.api.send_message(chat_id: chat_id, text: "Bye, #{message.from.first_name}")
+			@bot.api.send_message(chat_id: chat_id, text: "Bye, #{message.from.first_name}")
 		when '/help'
 			help chat_id
 		when '/resize'
@@ -53,7 +53,7 @@ class VideostabBot
 	# help command : send list of all commands and theit description
 	# @params chat_id[String] chat_id from Telegram::Bot::Types::Chat
 	# @return nil
-	def help(chat_id)
+	def help(bot, chat_id)
 		bot.api.send_message(chat_id: chat_id, text: 
 %{send video and wait for result
 MAX video size is 20 Mb
@@ -72,8 +72,8 @@ type /config to get current settings
 	def resize(chat_id, *params)
 		@width = params[1]  if params[1].to_i > 0
 		@heigth = params[2] if params[2].to_i > 0
-		bot.logger.info("New video resolution #{@width}  #{@height}")
-		bot.api.send_message(chat_id: chat_id, text: "Change video resolution, #{@width}  #{@heigth}")
+		@bot.logger.info("New video resolution #{@width}  #{@height}")
+		@bot.api.send_message(chat_id: chat_id, text: "Change video resolution, #{@width}  #{@heigth}")
 	end
 
 	# track command: change tracking features status (track or not to track keypoints) and send current status to the chat
@@ -87,18 +87,18 @@ type /config to get current settings
 
 	# crop command: change cropping borders and current cropping borders to the chat
 	# @param chat_id[String] chat_id from Telegram::Bot::Types::Chat
-	# @param border[Fixnum]
+	# @param params[Array[Integer]]
 	# @return nil 
-	def crop(chat_id, border)
-		horizontal_crop = border if 0 < border.to_i && border.to_i < width
-		bot.api.send_message(chat_id: chat_id, text: "Cropping borders: #{@crop_borders}")
+	def crop(chat_id, params)
+		horizontal_crop = params[0] if 0 < params[0].to_i && params[0].to_i < @width
+		@bot.api.send_message(chat_id: chat_id, text: "Cropping borders: #{@crop_borders}")
 	end
 
 	# config command: send current configurations to the chat
 	# @param chat_id[String] chat_id from Telegram::Bot::Types::Chat
 	# @return nil
 	def config(chat_id)
-		bot.api.send_message(chat_id: chat_id, text: 
+		@bot.api.send_message(chat_id: chat_id, text: 
 %{size : #{@width}x#{@heigth}
 track mode : #{@tracking}
 cropping borders : #{@crop_borders}
@@ -115,14 +115,14 @@ cropping borders : #{@crop_borders}
 			file_id, file_size, file_path = file['result'].values
 			type, *other, fmt = (message.document.mime_type rescue message.video.mime_type).split('/')
 			if type != 'video'
-				bot.api.send_message(chat_id: message.chat.id, text: "Send video, please")
+				@bot.api.send_message(chat_id: message.chat.id, text: "Send video, please")
 			end
-			bot.logger.info("Get file with #{file_id}id, file_path=#{file_path}, format=#{fmt}")
+			@bot.logger.info("Get file with #{file_id}id, file_path=#{file_path}, format=#{fmt}")
 			open("videos/#{file_id}.#{fmt}", 'wb') do |file|
 				file <<  open("https://api.telegram.org/file/bot#{@token}/#{file_path}").read
 			end
-			bot.api.send_message(chat_id: message.chat.id, text: "Video processing started\n ...")  
-			bot.logger.info('Start video stabilization')
+			@bot.api.send_message(chat_id: message.chat.id, text: "Video processing started\n ...")  
+			@bot.logger.info('Start video stabilization')
 			path = "C:\\Users\\George\\Desktop\\ruby_apps\\telegram_videostab\\videos\\%s.%s" % [file_id, fmt]
 			rescue
 				p $!
@@ -135,33 +135,31 @@ cropping borders : #{@crop_borders}
 	# @param chat_id[String] chat_id from Telegram::Bot::Types::Chat
 	# @return nil
 	def process_video(path, chat_id)
-			bot.logger.info('New thread started')
+			@bot.logger.info('New thread started')
 			# call python script with current configuration  
 			videostab(path, "#{@width}", "#{@height}", "#{@crop_borders}", "#{@tracking.to_s.capitalize}")
-			bot.api.send_message(chat_id: chat_id, text: "Video processing finished")
+			@bot.api.send_message(chat_id: chat_id, text: "Video processing finished")
 			path, fmt = path.split('.')
 			new_video_path = path + 'stab.' + fmt
-			bot.api.send_video(chat_id: chat_id, video: Faraday::UploadIO.new(new_video_path, 'video/'+fmt))
-			bot.logger.info("Send stab video")
+			@bot.api.send_video(chat_id: chat_id, video: Faraday::UploadIO.new(new_video_path, 'video/'+fmt))
+			@bot.logger.info("Send stab video")
 	end
 
 	# start bot
 	# get updates from chat until Signal INT send 
 	def start_bot		
-		@bot.run do |bot|
-			bot.listen do |message|
-				exec_command(message) if message.text
-				if message.video || message.document
-					path = get_video(message)
-					# process video in new thread
-					Thread.new {process_video(path, message.chat.id)}
-				end
-				# the maximum number of thread is 4, if there are 4 threads
-				if Thread.list.length > 4
-					@bot.logger.info("Too much threads")
-					# wait for all thread joined
-					Thread.list[1..-1].each {|thread| thread.join}
-				end
+		@bot.listen do |message|
+			exec_command(message) if message.text
+			if message.video || message.document
+				path = get_video(message)
+				# process video in new thread
+				Thread.new {process_video(path, message.chat.id)}
+			end
+			# the maximum number of thread is 4, if there are 4 threads
+			if Thread.list.length > 4
+				@bot.logger.info("Too much threads")
+				# wait for all thread joined
+				Thread.list[1..-1].each {|thread| thread.join}
 			end
 		end
 	end
